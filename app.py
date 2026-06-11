@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import openai
 import pandas as pd
 import streamlit as st
 
@@ -269,23 +268,42 @@ def ask_min():
         }
         for item in st.session_state.chat_history
     ]
-    if hasattr(openai, "OpenAI"):
-        client = openai.OpenAI(api_key=api_key)
-        response = client.responses.create(
-            model=model,
-            instructions=SYSTEM_PROMPT,
-            input=history,
-            max_output_tokens=250,
-        )
-        return response.output_text.strip()
-    openai.api_key = api_key
-    response = openai.ChatCompletion.create(
-        model=model,
-        messages=[{"role": "system", "content": SYSTEM_PROMPT}, *history],
-        max_tokens=250,
-        temperature=0.8,
+    payload = json.dumps(
+        {
+            "model": model,
+            "instructions": SYSTEM_PROMPT,
+            "input": history,
+            "max_output_tokens": 250,
+        },
+        ensure_ascii=False,
+    ).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.openai.com/v1/responses",
+        data=payload,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
     )
-    return response["choices"][0]["message"]["content"].strip()
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")
+        raise RuntimeError(f"OpenAI API 오류: HTTP {exc.code} {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"OpenAI API 연결 실패: {exc.reason}") from exc
+
+    texts = [
+        content["text"]
+        for output in result.get("output", [])
+        for content in output.get("content", [])
+        if content.get("type") == "output_text" and content.get("text")
+    ]
+    if not texts:
+        raise RuntimeError("OpenAI API가 빈 답변을 반환했습니다.")
+    return "\n".join(texts).strip()
 
 
 def save_data():
