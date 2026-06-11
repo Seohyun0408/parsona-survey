@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
 
 
@@ -334,14 +333,12 @@ def save_data():
         return
     if str(get_setting("REQUIRE_REMOTE_STORAGE", "false")).lower() == "true":
         raise RuntimeError("원격 저장소가 설정되지 않았습니다. 관리자에게 문의해 주세요.")
-    pd.DataFrame([row], columns=CSV_FIELDS).to_csv(
-        DATA_FILE,
-        mode="a",
-        header=not DATA_FILE.exists(),
-        index=False,
-        encoding="utf-8-sig",
-        quoting=csv.QUOTE_MINIMAL,
-    )
+    file_exists = DATA_FILE.exists() and DATA_FILE.stat().st_size > 0
+    with DATA_FILE.open("a", newline="", encoding="utf-8-sig") as file:
+        writer = csv.DictWriter(file, fieldnames=CSV_FIELDS, quoting=csv.QUOTE_MINIMAL)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def save_to_supabase(row, supabase_url, supabase_key):
